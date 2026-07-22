@@ -1,0 +1,15 @@
+# 仮想環境
+venv/
+
+# サービスアカウントの鍵JSON（絶対にGitに含めない）
+*.json
+
+# Streamlitのローカル秘密情報
+.streamlit/secrets.toml
+
+# Python関連の生成物
+__pycache__/
+*.pyc
+
+# OS関連
+.DS_Store
