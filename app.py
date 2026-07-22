@@ -114,7 +114,7 @@ else:
         checked = st.checkbox(
             task["title"],
             value=(task["status"] == "完了"),
-            key=f"complete_{task['id']}",
+            key=f"complete_{task['id']}_{task['status']}",
         )
         if checked != (task["status"] == "完了"):
             try:
