@@ -3,7 +3,17 @@ import datetime as dt
 import pandas as pd
 import streamlit as st
 
-from sheets import add_task, delete_task, get_all_tasks, update_task
+from sheets import (
+    SheetsError,
+    TaskNotFoundError,
+    add_task,
+    delete_task,
+    get_all_tasks,
+    update_task,
+)
+
+MAX_TITLE_LENGTH = 50
+MAX_CONTENT_LENGTH = 500
 
 STATUS_STYLE = {
     "gray": {"mark": "⚪", "bg": "#e0e0e0"},
@@ -32,23 +42,34 @@ st.title("TODOリスト")
 
 st.header("タスクを登録する")
 with st.form("add_task_form", clear_on_submit=True):
-    title = st.text_input("タイトル（必須）")
-    content = st.text_area("内容", height=100)
+    title = st.text_input("タイトル（必須）", max_chars=MAX_TITLE_LENGTH)
+    content = st.text_area("内容", height=100, max_chars=MAX_CONTENT_LENGTH)
     due_date = st.date_input("期日")
     submitted = st.form_submit_button("登録する")
 
     if submitted:
-        if not title:
+        if not title.strip():
             st.error("タイトルは必須です")
         else:
-            add_task(title, content, due_date.strftime("%Y-%m-%d"))
-            st.success("登録しました！")
+            if due_date < dt.date.today():
+                st.warning("期日が過去の日付です。内容を確認してください。")
+            try:
+                with st.spinner("登録しています..."):
+                    add_task(title.strip(), content.strip(), due_date.strftime("%Y-%m-%d"))
+                st.success("登録しました！")
+            except SheetsError as e:
+                st.error(str(e))
 
 st.header("タスク一覧")
 
 sort_option = st.selectbox("並び替え", ["期日が近い順", "登録が新しい順"])
 
-tasks = get_all_tasks()
+try:
+    with st.spinner("タスクを読み込んでいます..."):
+        tasks = get_all_tasks()
+except SheetsError as e:
+    st.error(str(e))
+    st.stop()
 
 if sort_option == "期日が近い順":
     tasks.sort(key=lambda t: t["due_date"])
@@ -96,14 +117,18 @@ else:
             key=f"complete_{task['id']}",
         )
         if checked != (task["status"] == "完了"):
-            update_task(
-                task["id"],
-                task["title"],
-                task["content"],
-                task["due_date"],
-                "完了" if checked else "未完了",
-            )
-            st.rerun()
+            try:
+                with st.spinner("更新しています..."):
+                    update_task(
+                        task["id"],
+                        task["title"],
+                        task["content"],
+                        task["due_date"],
+                        "完了" if checked else "未完了",
+                    )
+                st.rerun()
+            except (SheetsError, TaskNotFoundError) as e:
+                st.error(str(e))
 
     st.header("タスクを編集する")
 
@@ -112,8 +137,12 @@ else:
     selected_task = task_options[selected_label]
 
     with st.form("edit_task_form"):
-        edit_title = st.text_input("タイトル（必須）", value=selected_task["title"])
-        edit_content = st.text_area("内容", value=selected_task["content"], height=100)
+        edit_title = st.text_input(
+            "タイトル（必須）", value=selected_task["title"], max_chars=MAX_TITLE_LENGTH
+        )
+        edit_content = st.text_area(
+            "内容", value=selected_task["content"], height=100, max_chars=MAX_CONTENT_LENGTH
+        )
         edit_due_date = st.date_input(
             "期日", value=dt.date.fromisoformat(selected_task["due_date"])
         )
@@ -125,18 +154,24 @@ else:
         edit_submitted = st.form_submit_button("更新する")
 
         if edit_submitted:
-            if not edit_title:
+            if not edit_title.strip():
                 st.error("タイトルは必須です")
             else:
-                update_task(
-                    selected_task["id"],
-                    edit_title,
-                    edit_content,
-                    edit_due_date.strftime("%Y-%m-%d"),
-                    edit_status,
-                )
-                st.success("更新しました！")
-                st.rerun()
+                if edit_due_date < dt.date.today():
+                    st.warning("期日が過去の日付です。内容を確認してください。")
+                try:
+                    with st.spinner("更新しています..."):
+                        update_task(
+                            selected_task["id"],
+                            edit_title.strip(),
+                            edit_content.strip(),
+                            edit_due_date.strftime("%Y-%m-%d"),
+                            edit_status,
+                        )
+                    st.success("更新しました！")
+                    st.rerun()
+                except (SheetsError, TaskNotFoundError) as e:
+                    st.error(str(e))
 
     st.header("タスクを削除する")
 
@@ -144,9 +179,15 @@ else:
         "削除するタスク", list(task_options.keys()), key="delete_select"
     )
     delete_task_target = task_options[delete_label]
-    confirm_delete = st.checkbox("本当に削除しますか？")
+    confirm_delete = st.checkbox("本当に削除しますか？", key="confirm_delete_checkbox")
 
     if st.button("削除する", disabled=not confirm_delete):
-        delete_task(delete_task_target["id"])
-        st.success("削除しました！")
-        st.rerun()
+        try:
+            with st.spinner("削除しています..."):
+                delete_task(delete_task_target["id"])
+            st.session_state.pop("confirm_delete_checkbox", None)
+            st.session_state.pop("delete_select", None)
+            st.success("削除しました！")
+            st.rerun()
+        except (SheetsError, TaskNotFoundError) as e:
+            st.error(str(e))
